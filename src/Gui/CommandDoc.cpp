@@ -63,6 +63,8 @@
 #include "ViewProvider.h"
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
+#include <Mod/Sketcher/App/SketchObject.h>
+#include <Mod/Sketcher/Gui/Command.h>
 #include "MergeDocuments.h"
 #include "NavigationStyle.h"
 #include "GraphvizView.h"
@@ -1020,6 +1022,7 @@ StdCmdDelete::StdCmdDelete()
 
 void StdCmdDelete::activated(int iMsg)
 {
+    std::vector<App::DocumentObject*> sketchesInNeedOfBeingRemappedToFaces;
     // go through all documents
     const SelectionSingleton& rSel = Selection();
     const std::vector<App::Document*> docs = App::GetApplication().getDocuments();
@@ -1062,8 +1065,11 @@ void StdCmdDelete::activated(int iMsg)
                         // check if the referenced objects are groups or are selected too
                         for (std::vector<App::DocumentObject*>::iterator lt = links.begin(); lt != links.end(); ++lt) {
                             if (!(*lt)->getTypeId().isDerivedFrom(App::DocumentObjectGroup::getClassTypeId()) && !rSel.isSelected(*lt)) {
-                                autoDeletion = false;
-                                break;
+                                if ((*lt)->getTypeId().isDerivedFrom(Sketcher::SketchObject::getClassTypeId())) {
+                                    sketchesInNeedOfBeingRemappedToFaces.push_back(lt);
+                                } else {
+                                    autoDeletion = false;
+                                }
                             }
                         }
 
@@ -1097,7 +1103,19 @@ void StdCmdDelete::activated(int iMsg)
                     (*it)->commitTransaction();
                     Gui::getMainWindow()->setUpdatesEnabled(true);
                     Gui::getMainWindow()->update();
-                }
+                    //Re-map broken sketches to faces.
+                    for (std::vector<App::DocumentObject*>::iterator ski = sketchesInNeedOfBeingRemappedToFaces.begin(); ski != sketchesInNeedOfBeingRemappedToFaces.end(); ++ski) {
+                        bool successfullyRemapped = false;
+                        while(!successfullyRemapped) {
+                            QMessageBox remapSketchPromptWindow;
+                            remapSketchPromptWindow.setWindowTitle(qApp->translate("Std_Delete", "Re-map broken sketch"));
+                            remapSketchPromptWindow.setText(qApp->translate("Std_Delete", "This sketch %s was matched to a face that has just been deleted. Please select a new face to map it to and pres OK.", ski->Label->getValue()));
+                            remapSketchPromptWindow.setWindowModality(Qt::NonModal);
+                            remapSketchPromptWindow.exec();
+                            Gui::CmdSketcherMapSketch::mapSketchToSelectedFace(*ski,false);
+                        }
+                    }
+		}
             }
         }
     }

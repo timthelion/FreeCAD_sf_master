@@ -338,29 +338,10 @@ CmdSketcherMapSketch::CmdSketcherMapSketch()
     sPixmap         = "Sketcher_MapSketch";
 }
 
-void CmdSketcherMapSketch::activated(int iMsg)
+bool CmdSketcherMapSketch::mapSketchToSelectedFace(App::DocumentObject* sketch,bool recomputeAndEnterEditMode)
 {
     App::Document* doc = App::GetApplication().getActiveDocument();
-    std::vector<App::DocumentObject*> sel = doc->getObjectsOfType(Sketcher::SketchObject::getClassTypeId());
-    if (sel.empty()) {
-        QMessageBox::warning(Gui::getMainWindow(),
-            qApp->translate(className(), "No sketch found"),
-            qApp->translate(className(), "The document doesn't have a sketch"));
-        return;
-    }
-
-    bool ok;
-    QStringList items;
-    for (std::vector<App::DocumentObject*>::iterator it = sel.begin(); it != sel.end(); ++it)
-        items.push_back(QString::fromUtf8((*it)->Label.getValue()));
-    QString text = QInputDialog::getItem(Gui::getMainWindow(),
-        qApp->translate(className(), "Select sketch"),
-        qApp->translate(className(), "Select a sketch from the list"),
-        items, 0, false, &ok);
-    if (!ok) return;
-    int index = items.indexOf(text);
-
-    std::string featName = sel[index]->getNameInDocument();
+    std::string featName = sketch->getNameInDocument();
     Gui::SelectionFilter FaceFilter  ("SELECT Part::Feature SUBELEMENT Face COUNT 1");
     if (FaceFilter.match()) {
         // get the selected object
@@ -372,22 +353,22 @@ void CmdSketcherMapSketch::activated(int iMsg)
             QMessageBox::warning(Gui::getMainWindow(),
                 qApp->translate(className(),"No sub-elements selected"),
                 qApp->translate(className(),"You have to select a single face as support for a sketch!"));
-            return;
+            return false;
         }
         else if (sub.size() > 1) {
             // No assert for wrong user input!
             QMessageBox::warning(Gui::getMainWindow(),
                 qApp->translate(className(),"Several sub-elements selected"),
                 qApp->translate(className(),"You have to select a single face as support for a sketch!"));
-            return;
+            return false;
         }
 
         std::vector<App::DocumentObject*> input = part->getOutList();
-        if (std::find(input.begin(), input.end(), sel[index]) != input.end()) {
+        if (std::find(input.begin(), input.end(), sketch) != input.end()) {
             QMessageBox::warning(Gui::getMainWindow(),
                 qApp->translate(className(),"Cyclic dependency"),
                 qApp->translate(className(),"You cannot choose a support object depending on the selected sketch!"));
-            return;
+            return false;
         }
 
         // get the selected sub shape (a Face)
@@ -399,7 +380,7 @@ void CmdSketcherMapSketch::activated(int iMsg)
             QMessageBox::warning(Gui::getMainWindow(),
                 qApp->translate(className(),"No support face selected"),
                 qApp->translate(className(),"You have to select a face as support for a sketch!"));
-            return;
+            return false;
         }
 
         BRepAdaptor_Surface adapt(face);
@@ -407,21 +388,46 @@ void CmdSketcherMapSketch::activated(int iMsg)
             QMessageBox::warning(Gui::getMainWindow(),
                 qApp->translate(className(),"No planar support"),
                 qApp->translate(className(),"You need a planar face as support for a sketch!"));
-            return;
+            return false;
         }
 
         std::string supportString = FaceFilter.Result[0][0].getAsPropertyLinkSubString();
 
-        openCommand("Map a Sketch on Face");
+        openCommand("Map sketch onto face");
         doCommand(Gui,"App.activeDocument().%s.Support = %s",featName.c_str(),supportString.c_str());
-        doCommand(Gui,"App.activeDocument().recompute()");
-        doCommand(Gui,"Gui.activeDocument().setEdit('%s')",featName.c_str());
+        if(recomputeAndEnterEditMode){
+            doCommand(Gui,"App.activeDocument().recompute()");
+            doCommand(Gui,"Gui.activeDocument().setEdit('%s')",featName.c_str());
+        }
+        return true;
     }
     else {
         QMessageBox::warning(Gui::getMainWindow(),
             qApp->translate(className(), "No face selected"),
             qApp->translate(className(), "No face was selected to map the sketch to"));
+        return false;
     }
+}
+
+void CmdSketcherMapSketch::activated(int iMsg)
+{
+    App::Document* doc = App::GetApplication().getActiveDocument();
+    std::vector<App::DocumentObject*> sketchObjects = doc->getObjectsOfType(Sketcher::SketchObject::getClassTypeId());
+    if (sketchObjects.empty()) {
+        QMessageBox::warning(Gui::getMainWindow(),
+            qApp->translate(className(), "No sketch found"),
+            qApp->translate(className(), "The document doesn't have a sketch"));
+        return;
+    }
+    QStringList items;
+    for (std::vector<App::DocumentObject*>::iterator it = sketchObjects.begin(); it != sketchObjects.end(); ++it)
+        items.push_back(QString::fromUtf8((*it)->Label.getValue()));
+    QString text = QInputDialog::getItem(Gui::getMainWindow(),
+        qApp->translate(className(), "Select sketch"),
+        qApp->translate(className(), "Select a sketch from the list"),
+        items, 0, false, &ok);
+    if (!ok) return;
+    CmdSketcherMapSketch::mapSketchToSelectedFace(sketcherObjects[items.indexOf(text)],true);
 }
 
 bool CmdSketcherMapSketch::isActive(void)
